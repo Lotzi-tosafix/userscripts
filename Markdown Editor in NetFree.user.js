@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         NetFree Advanced Ticket Editor (Live Preview)
+// @name         Markdown Editor in NetFree
 // @namespace    http://tampermonkey.net/
 // @version      2.0
-// @description  עורך טקסט מתקדם לנטפרי - תצוגה מקדימה חיה, שליחה ב-Ctrl+Enter
+// @description  עורך טקסט מתקדם לנטפרי
 // @author       Assistant
 // @match        https://netfree.link/app/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=netfree.link
