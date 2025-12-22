@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Markdown Editor in NetFree
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  עורך טקסט מתקדם לנטפרי
 // @author       Assistant
 // @match        https://netfree.link/app/*
@@ -228,13 +228,13 @@
         previewDiv.innerHTML = `
             <img class="message-avatar" style="border-radius: 100%; height: 38px; width: 38px;" src="${userAvatar}">
             <div class="message">
-                <div class="title">
+                <div class="title" style="border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 5px;">
                     <strong>${userName}</strong>
                     <div class="post-title-right" style="float: left;"> <!-- בנטפרי הזמן בצד שמאל -->
                         <span class="time-ago" style="font-weight: bold; color: #1ab394;">תצוגה מקדימה</span>
                     </div>
                 </div>
-                <div class="message-content" style="padding-top: 10px;">
+                <div class="message-content" style="padding-top: 5px;">
                     <!-- התוכן ייכנס לכאן -->
                 </div>
             </div>
