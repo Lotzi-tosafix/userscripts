@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         GitHub Friendly Downloads
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  הופך את דף ההורדות של GitHub לידידותי, נקי וברור – בעברית מלאה!
-// @author       לאצי&ai
+// @author       לאצי@ai
 // @match        https://github.com/*
 // @grant        none
 // @run-at       document-end
@@ -295,7 +295,7 @@
             type: 'file',
             arch: '',
             interface: '',
-            labelInterface: '', // תווית חדשה בעברית לממשק
+            labelInterface: '',
             isJunk: false,
             labelOS: 'קבצים כלליים',
             labelType: 'קובץ'
@@ -318,7 +318,7 @@
             info.os = 'linux'; info.labelOS = 'Linux';
         }
 
-        // 3. זיהוי סוג ממשק (CLI / GUI) עם תרגום לעברית
+        // 3. זיהוי סוג ממשק (CLI / GUI)
         if (lower.includes('cli') || lower.includes('headless') || lower.includes('server') || lower.includes('terminal')) {
             info.interface = 'CLI';
             info.labelInterface = 'שורת פקודה';
@@ -327,11 +327,10 @@
             info.labelInterface = 'ממשק גרפי';
         }
 
-        // 4. זיהוי סוג התקנה
+        // 4. זיהוי סוג קובץ (התקנה / נייד / סקריפט - חדש!)
         if (lower.endsWith('.exe') || lower.endsWith('.msi') || lower.includes('setup') || lower.includes('installer') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.apk') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) {
             info.type = 'installer';
             info.labelType = 'התקנה (מומלץ)';
-            // ברירת מחדל: אם זה התקנה ואין זיהוי ספציפי, סביר להניח שזה GUI
             if (!info.interface) {
                 info.interface = 'GUI';
                 info.labelInterface = 'ממשק גרפי';
@@ -339,6 +338,18 @@
         } else if (lower.includes('portable') || lower.endsWith('.zip') || lower.endsWith('.7z') || lower.endsWith('.tar.gz')) {
             info.type = 'portable';
             info.labelType = 'גרסה ניידת';
+        } else if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.py')) {
+            // --- תוספת חדשה לזיהוי סקריפטים ---
+            info.type = 'script';
+            info.labelType = lower.endsWith('.py') ? 'Python' : 'סקריפט';
+            info.interface = 'CLI'; // סקריפטים הם לרוב CLI
+            info.labelInterface = 'שורת פקודה';
+
+            // אם זה .sh ועדיין לא זוהה כלינוקס, נשייך ללינוקס
+            if (info.os === 'other' && !lower.endsWith('.py')) {
+                info.os = 'linux';
+                info.labelOS = 'Linux';
+            }
         } else if (filename.includes('Source code')) {
             info.type = 'source';
             info.labelType = 'קוד מקור';
@@ -362,6 +373,7 @@
 
     function getIconForOS(os, type) {
         if (type === 'source') return ICONS.code;
+        if (type === 'script') return ICONS.code;
         if (type === 'portable' && os !== 'android') return ICONS.zip;
         if (os === 'windows') return ICONS.windows;
         if (os === 'android') return ICONS.android;
@@ -386,6 +398,8 @@
 
         if (parsed.type === 'installer') tagsHtml += `<span class="gfd-tag type-install">התקנה</span>`;
         if (parsed.type === 'portable') tagsHtml += `<span class="gfd-tag type-portable">נייד</span>`;
+        if (parsed.type === 'script') tagsHtml += `<span class="gfd-tag type-arch" style="border-color: #a371f7; color: #a371f7;">${parsed.labelType}</span>`;
+
         if (parsed.arch) tagsHtml += `<span class="gfd-tag type-arch">${parsed.arch}</span>`;
 
         const iconSvg = getIconForOS(parsed.os, parsed.type);
