@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GitHub Friendly Downloads
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  הופך את דף ההורדות של GitHub לידידותי, נקי וברור – בעברית מלאה!
 // @author       לאצי@ai
 // @match        https://github.com/*
@@ -14,7 +14,9 @@
 
     // --- הגדרות עיצוב (CSS) ---
     const STYLES = `
-        :root {
+        /* --- 1. הגדרות ברירת מחדל (בהיר) --- */
+        /* מוגדרות ישירות על הקונטיינר למניעת התנגשויות */
+        .gfd-container {
             --gfd-bg: #ffffff;
             --gfd-border: #d0d7de;
             --gfd-text-main: #24292f;
@@ -27,7 +29,38 @@
             --gfd-radius: 6px;
         }
 
-        [data-color-mode="dark"] {
+        /* --- 2. תיקון: תמיכה במצב כהה של המערכת (System Preference) --- */
+        /* זה יחול אוטומטית אם המחשב/דפדפן מוגדר לכהה */
+        @media (prefers-color-scheme: dark) {
+            .gfd-container {
+                --gfd-bg: #0d1117;
+                --gfd-border: #30363d;
+                --gfd-text-main: #c9d1d9;
+                --gfd-text-muted: #8b949e;
+                --gfd-primary: #58a6ff;
+                --gfd-success: #238636;
+                --gfd-success-hover: #2ea043;
+                --gfd-bg-subtle: #161b22;
+            }
+
+            /* צבעי תגיות במצב כהה של מערכת */
+            .gfd-tag.type-install { background: rgba(46,160,67,0.15); color: #3fb950; }
+            .gfd-tag.type-portable { background: rgba(56,139,253,0.15); color: #58a6ff; }
+            .gfd-tag.type-arch { background: #161b22; color: #8b949e; border-color: #30363d; }
+            .gfd-tag.type-cli { background: #c9d1d9; color: #0d1117; }
+            .gfd-tag.type-gui { background: rgba(111,66,193,0.4); color: #d2a8ff; }
+
+            .gfd-note-box {
+                background: rgba(187,128,9,0.15);
+                border-color: rgba(187,128,9,0.4);
+                color: #c9d1d9;
+            }
+        }
+
+        /* --- 3. תמיכה במצב כהה ידני של GitHub (אם המשתמש לחץ על כפתור באתר) --- */
+        /* זה מבטיח שאם שינית ידנית באתר לכהה, זה יעבוד גם אם המערכת בהירה */
+        [data-color-mode="dark"] .gfd-container,
+        [data-dark-theme="dark"] .gfd-container {
             --gfd-bg: #0d1117;
             --gfd-border: #30363d;
             --gfd-text-main: #c9d1d9;
@@ -38,6 +71,15 @@
             --gfd-bg-subtle: #161b22;
         }
 
+        /* עדכון תגיות למצב כהה ידני */
+        [data-color-mode="dark"] .gfd-tag.type-install, [data-dark-theme="dark"] .gfd-tag.type-install { background: rgba(46,160,67,0.15); color: #3fb950; }
+        [data-color-mode="dark"] .gfd-tag.type-portable, [data-dark-theme="dark"] .gfd-tag.type-portable { background: rgba(56,139,253,0.15); color: #58a6ff; }
+        [data-color-mode="dark"] .gfd-tag.type-arch, [data-dark-theme="dark"] .gfd-tag.type-arch { background: #161b22; color: #8b949e; border-color: #30363d; }
+        [data-color-mode="dark"] .gfd-tag.type-cli, [data-dark-theme="dark"] .gfd-tag.type-cli { background: #c9d1d9; color: #0d1117; }
+        [data-color-mode="dark"] .gfd-tag.type-gui, [data-dark-theme="dark"] .gfd-tag.type-gui { background: rgba(111,66,193,0.4); color: #d2a8ff; }
+        [data-color-mode="dark"] .gfd-note-box, [data-dark-theme="dark"] .gfd-note-box { background: rgba(187,128,9,0.15); border-color: rgba(187,128,9,0.4); color: #c9d1d9; }
+
+        /* --- שאר העיצוב (מבנה) --- */
         .gfd-container {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             direction: rtl;
@@ -169,18 +211,13 @@
             font-weight: 500;
             display: inline-block;
         }
+
+        /* ברירת מחדל לתגיות (בהיר) */
         .gfd-tag.type-install { background: #dafbe1; color: #1a7f37; }
         .gfd-tag.type-portable { background: #ddf4ff; color: #0969da; }
         .gfd-tag.type-arch { background: #f6f8fa; color: #57606a; border: 1px solid #d0d7de; }
-
         .gfd-tag.type-cli { background: #333; color: #fff; }
         .gfd-tag.type-gui { background: #6f42c1; color: #fff; }
-
-        [data-color-mode="dark"] .gfd-tag.type-install { background: rgba(46,160,67,0.15); color: #3fb950; }
-        [data-color-mode="dark"] .gfd-tag.type-portable { background: rgba(56,139,253,0.15); color: #58a6ff; }
-        [data-color-mode="dark"] .gfd-tag.type-arch { background: #161b22; color: #8b949e; border-color: #30363d; }
-        [data-color-mode="dark"] .gfd-tag.type-cli { background: #c9d1d9; color: #0d1117; }
-        [data-color-mode="dark"] .gfd-tag.type-gui { background: rgba(111,66,193,0.4); color: #d2a8ff; }
 
         .gfd-meta {
             font-size: 11px;
@@ -232,11 +269,6 @@
             font-size: 13px;
             margin-bottom: 20px;
             border: 1px solid #d3c893;
-        }
-        [data-color-mode="dark"] .gfd-note-box {
-            background: rgba(187,128,9,0.15);
-            border-color: rgba(187,128,9,0.4);
-            color: #c9d1d9;
         }
 
         .gfd-load-more-btn {
@@ -297,24 +329,31 @@
             interface: '',
             labelInterface: '',
             isJunk: false,
-            labelOS: 'קבצים כלליים',
+            labelOS: 'קבצים נוספים',
             labelType: 'קובץ'
         };
 
         // 1. סינון זבל טכני
-        if (lower.endsWith('.asc') || lower.endsWith('.sig') || lower.endsWith('.sha256') || lower.endsWith('.md5') || lower.endsWith('.blockmap')) {
+        if (lower.endsWith('.asc') || lower.endsWith('.sig') || lower.endsWith('.sha256') || lower.endsWith('.md5') || lower.endsWith('.blockmap') || lower.endsWith('.pdb') || lower.includes('pdbs-')) {
             info.isJunk = true;
             return info;
         }
 
         // 2. זיהוי מערכת הפעלה
-        if (lower.includes('android') || lower.endsWith('.apk')) {
-            info.os = 'android'; info.labelOS = 'Android';
-        } else if (lower.includes('win') || lower.endsWith('.exe') || lower.endsWith('.msi')) {
+        // -- Windows --
+        if (lower.includes('win') || lower.endsWith('.exe') || lower.endsWith('.msi') || lower.endsWith('.msix') || lower.endsWith('.msixbundle') || lower.includes('mingit')) {
             info.os = 'windows'; info.labelOS = 'Windows';
-        } else if (lower.includes('mac') || lower.includes('darwin') || lower.includes('osx') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) {
+        }
+        // -- Android --
+        else if (lower.includes('android') || lower.endsWith('.apk')) {
+            info.os = 'android'; info.labelOS = 'Android';
+        }
+        // -- macOS --
+        else if (lower.includes('mac') || lower.includes('darwin') || lower.includes('osx') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) {
             info.os = 'mac'; info.labelOS = 'macOS';
-        } else if (lower.includes('linux') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.appimage')) {
+        }
+        // -- Linux --
+        else if (lower.includes('linux') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.appimage') || lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
             info.os = 'linux'; info.labelOS = 'Linux';
         }
 
@@ -327,30 +366,33 @@
             info.labelInterface = 'ממשק גרפי';
         }
 
-        // 4. זיהוי סוג קובץ (התקנה / נייד / סקריפט - חדש!)
-        if (lower.endsWith('.exe') || lower.endsWith('.msi') || lower.includes('setup') || lower.includes('installer') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.apk') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) {
+        // 4. זיהוי סוג קובץ
+        // התקנה
+        if (lower.endsWith('.exe') || lower.endsWith('.msi') || lower.endsWith('.msix') || lower.endsWith('.msixbundle') || lower.includes('setup') || lower.includes('installer') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.apk') || lower.endsWith('.dmg') || lower.endsWith('.pkg')) {
             info.type = 'installer';
             info.labelType = 'התקנה (מומלץ)';
             if (!info.interface) {
                 info.interface = 'GUI';
                 info.labelInterface = 'ממשק גרפי';
             }
-        } else if (lower.includes('portable') || lower.endsWith('.zip') || lower.endsWith('.7z') || lower.endsWith('.tar.gz')) {
+        }
+        // נייד
+        else if (lower.includes('portable') || lower.endsWith('.zip') || lower.endsWith('.7z') || lower.endsWith('.tar.gz')) {
             info.type = 'portable';
             info.labelType = 'גרסה ניידת';
-        } else if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.py')) {
-            // --- תוספת חדשה לזיהוי סקריפטים ---
+        }
+        // סקריפטים
+        else if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.py')) {
             info.type = 'script';
             info.labelType = lower.endsWith('.py') ? 'Python' : 'סקריפט';
-            info.interface = 'CLI'; // סקריפטים הם לרוב CLI
+            info.interface = 'CLI';
             info.labelInterface = 'שורת פקודה';
-
-            // אם זה .sh ועדיין לא זוהה כלינוקס, נשייך ללינוקס
             if (info.os === 'other' && !lower.endsWith('.py')) {
-                info.os = 'linux';
-                info.labelOS = 'Linux';
+                info.os = 'linux'; info.labelOS = 'Linux';
             }
-        } else if (filename.includes('Source code')) {
+        }
+        // קוד מקור
+        else if (filename.includes('Source code')) {
             info.type = 'source';
             info.labelType = 'קוד מקור';
         }
@@ -476,12 +518,9 @@
             const restoreBtn = container.querySelector('.gfd-restore-btn');
 
             restoreBtn.addEventListener('click', () => {
-                // הסתרת הממשק המעוצב
                 container.style.display = 'none';
-                // הצגת הממשק המקורי
                 assetsContainer.classList.remove('gfd-original-hidden');
 
-                // הוספת כפתור "חזור לעיצוב" לממשק המקורי (אם לא קיים כבר)
                 if (!assetsContainer.querySelector('.gfd-reopen-btn')) {
                     const reopenBtn = document.createElement('button');
                     reopenBtn.className = 'gfd-reopen-btn';
@@ -492,8 +531,6 @@
                         assetsContainer.classList.add('gfd-original-hidden');
                         container.style.display = 'block';
                     });
-
-                    // הוספה לראש הרשימה המקורית
                     assetsContainer.prepend(reopenBtn);
                 }
             });
@@ -516,34 +553,43 @@
             files.push({ name, href, size, parsed: parseFileInfo(name) });
         });
 
+        // יצירת קבוצות כולל קבוצה נפרדת לקוד מקור
+        const grouped = { windows: [], android: [], mac: [], linux: [], other: [], source: [] };
 
-        const grouped = { windows: [], android: [], mac: [], linux: [], other: [] };
         files.forEach(f => {
             if (f.parsed.isJunk) return;
-            if (grouped[f.parsed.os]) grouped[f.parsed.os].push(f);
-            else grouped.other.push(f);
+
+            if (f.parsed.type === 'source') {
+                grouped.source.push(f);
+            } else if (grouped[f.parsed.os]) {
+                grouped[f.parsed.os].push(f);
+            } else {
+                grouped.other.push(f);
+            }
         });
 
-        // הגדרת הרשימה המלאה
         let displayOrder = [
             { key: 'windows', title: 'Windows', icon: ICONS.windows },
             { key: 'android', title: 'Android', icon: ICONS.android },
             { key: 'mac', title: 'macOS', icon: ICONS.apple },
             { key: 'linux', title: 'Linux', icon: ICONS.linux },
-            { key: 'other', title: 'קבצים נוספים', icon: ICONS.file }
+            { key: 'other', title: 'קבצים נוספים', icon: ICONS.file },
+            { key: 'source', title: 'קוד מקור', icon: ICONS.code } // הפרדה לקוד מקור
         ];
 
-        // זיהוי המכשיר הנוכחי
+        // מיון חכם
         const userOS = detectUserOS();
-
-        // מיון מחדש: מקפיץ את המערכת של המשתמש לראש הרשימה
         displayOrder.sort((a, b) => {
-            if (a.key === userOS) return -1; // המערכת שלי עולה למעלה
+            // קוד מקור תמיד בסוף
+            if (a.key === 'source') return 1;
+            if (b.key === 'source') return -1;
+
+            // המערכת שלי ראשונה
+            if (a.key === userOS) return -1;
             if (b.key === userOS) return 1;
-            return 0; // שאר הסדר נשמר כפי שהוגדר למעלה
+            return 0;
         });
 
-        // יצירת הלולאה (ללא שינוי, רק לוודא שזה מגיע אחרי המיון)
         displayOrder.forEach(cat => {
             if (grouped[cat.key].length > 0) {
                 const section = document.createElement('div');
@@ -559,12 +605,10 @@
             }
         });
 
-        // --- כפתור "הצג עוד" המתוקן ---
+        // כפתור הצג עוד
         if (nativeTruncateBtn && !nativeTruncateBtn.closest('[hidden]')) {
             const loadMoreBtn = document.createElement('button');
             loadMoreBtn.className = 'gfd-load-more-btn';
-
-            // טקסט נקי ללא מספרים וללא אימוג'י
             loadMoreBtn.textContent = 'הצג את כל הקבצים';
 
             loadMoreBtn.onclick = () => {
