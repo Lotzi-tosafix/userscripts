@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeBB Plus
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Bilingual Integrated tools: Hub Dashboard, Thread Exporter, Smart Sidebar Links & Recent Topics. Smart Duplicate Prevention.
 // @author       לאצי&AI
 // @match        *://*/*
@@ -86,7 +86,7 @@
             copyMarkdown: "העתק תוכן פוסט כ-Markdown",
 
             // Sidebar
-            top: "TOP",
+            top: "הכי הרבה הצבעות",
             popular: "פופולארי",
             groups: "קבוצות",
             tags: "תגיות",
@@ -134,7 +134,7 @@
             copyMarkdown: "Copy post as Markdown",
 
             // Sidebar
-            top: "Top",
+            top: "Most Votes",
             popular: "Popular",
             groups: "Groups",
             tags: "Tags",
