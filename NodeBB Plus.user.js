@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeBB Plus
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.1.1
 // @description  Bilingual Integrated tools: Hub Dashboard, Thread Exporter, Smart Sidebar Links & Recent Topics. Smart Duplicate Prevention.
 // @author       לאצי&AI
 // @match        *://*/*
@@ -152,6 +152,22 @@
             text = text.replace(`{${k}}`, v);
         }
         return text;
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(str).replace(/[&<>"']/g, m => map[m]);
+    }
+    function safeStripHTML(html) {
+        if (!html) return '';
+        try { const doc = new DOMParser().parseFromString(html, 'text/html'); return doc.body.textContent || ''; } catch(e) { return ''; }
+    }
+    function safeUrl(url) {
+        try { const u = new URL(url); return u.protocol === 'https:' ? u.href : ''; } catch(e) { return ''; }
+    }
+    function safeFaIcon(icon) {
+        return /^[\w-]+$/.test(icon || '') ? icon : 'fa-folder';
     }
 
     function getBasePath() {
@@ -319,7 +335,10 @@
         function getSites() {
             const stored = GM_getValue(STORAGE_KEY_SITES);
             if (!stored) { saveSites(DEFAULT_SITES); return DEFAULT_SITES; }
-            return JSON.parse(stored);
+            try {
+                const parsed = JSON.parse(stored);
+                return parsed.filter(s => s && typeof s.name === 'string' && safeUrl(s.url));
+            } catch(e) { return DEFAULT_SITES; }
         }
         function saveSites(sites) { GM_setValue(STORAGE_KEY_SITES, JSON.stringify(sites)); }
         function getIgnored() { return JSON.parse(GM_getValue(STORAGE_KEY_IGNORED) || '[]'); }
@@ -475,38 +494,33 @@
                 const domain = new URL(tData.origin.url).hostname;
                 const iconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
 
-                let authHtml = `<div class="d-letter" style="background:${author['icon:bgColor']||'#666'}">${author['icon:text']||'?'}</div>`;
+                let authHtml = `<div class="d-letter" style="background:${esc(author['icon:bgColor']||'#666')}">${esc(author['icon:text']||'?')}</div>`;
                 if (author.picture) {
                     let pic = fixUrl(author.picture, tData.origin.url);
-                    authHtml = `<img class="d-avatar orb-fix" data-src="${pic}">`;
+                    authHtml = `<img class="d-avatar orb-fix" data-src="${esc(pic)}">`;
                 }
 
-                let tImg = `<div style="width:18px; height:18px; border-radius:50%; background:${tUser['icon:bgColor']||'#666'}; display:inline-block;"></div>`;
+                let tImg = `<div style="width:18px; height:18px; border-radius:50%; background:${esc(tUser['icon:bgColor']||'#666')}; display:inline-block;"></div>`;
                 if (tUser.picture) {
                     let pic = fixUrl(tUser.picture, tData.origin.url);
-                    tImg = `<img class="t-avatar orb-fix" data-src="${pic}">`;
+                    tImg = `<img class="t-avatar orb-fix" data-src="${esc(pic)}">`;
                 }
 
-                let txt = t('noContent');
-                if (teaser && teaser.content) {
-                    const d = document.createElement('div');
-                    d.innerHTML = teaser.content;
-                    txt = d.innerText.trim() || "";
-                }
+                const txt = teaser && teaser.content ? safeStripHTML(teaser.content) : t('noContent');
 
                 const row = document.createElement('div');
                 row.className = 'd-topic';
                 row.innerHTML = `
                     <div class="d-auth">
-                        <a href="${tData.origin.url}/user/${author.userslug}" target="_blank" style="text-decoration:none; display:inline-block; position:relative;">
+                        <a href="${safeUrl(tData.origin.url) || '#'}/user/${esc(author.userslug)}" target="_blank" style="text-decoration:none; display:inline-block; position:relative;">
                             ${authHtml}
-                            <img class="d-icon orb-fix" data-src="${iconUrl}" title="${tData.origin.name}">
+                            <img class="d-icon orb-fix" data-src="${iconUrl}" title="${esc(tData.origin.name)}">
                         </a>
                     </div>
                     <div class="d-main">
-                        <a href="${tData.origin.url}/topic/${tData.slug}" target="_blank" class="d-link">${tData.title}</a>
+                        <a href="${safeUrl(tData.origin.url) || '#'}/topic/${esc(tData.slug)}" target="_blank" class="d-link">${esc(tData.title)}</a>
                         <div class="d-meta">
-                            <span class="d-badge"><img src="${iconUrl}" style="width:14px; height:14px;" class="orb-fix" data-src="${iconUrl}"> ${tData.origin.name} <span style="color:#ccc">|</span> <i class="fa ${tData.category.icon}"></i> ${tData.category.name}</span>
+                            <span class="d-badge"><img src="${iconUrl}" style="width:14px; height:14px;" class="orb-fix" data-src="${iconUrl}"> ${esc(tData.origin.name)} <span style="color:#ccc">|</span> <i class="fa ${safeFaIcon(tData.category.icon)}"></i> ${esc(tData.category.name)}</span>
                             <span><i class="fa fa-eye"></i> ${tData.viewcount}</span>
                             <span><i class="fa fa-comment"></i> ${tData.postcount}</span>
                             ${tData.pinned ? '<i class="fa fa-thumbtack text-danger"></i>' : ''}
@@ -514,8 +528,8 @@
                         </div>
                     </div>
                     <div class="d-teaser">
-                        <div class="t-meta">${tImg} <b>${tUser.username}</b> <span>• ${timeAgo(tData.lastposttimeISO)}</span></div>
-                        <div class="t-txt" title="${txt}">${txt}</div>
+                        <div class="t-meta">${tImg} <b>${esc(tUser.username)}</b> <span>• ${timeAgo(tData.lastposttimeISO)}</span></div>
+                        <div class="t-txt" title="${esc(txt)}">${esc(txt)}</div>
                     </div>
                 `;
                 container.appendChild(row);
@@ -527,14 +541,14 @@
             const list = document.getElementById('dash-sites-ui');
             list.innerHTML = '';
             getSites().forEach((s, i) => {
-                list.innerHTML += `
-                    <div style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #f0f0f0;">
-                        <div><b>${s.name}</b> <br><small>${s.url}</small></div>
-                        <button class="d-btn bg-gray remove-s" data-idx="${i}">X</button>
-                    </div>`;
-            });
-            document.querySelectorAll('.remove-s').forEach(b => {
-                b.onclick = function() { const s = getSites(); s.splice(this.dataset.idx, 1); saveSites(s); openSettings(); };
+                const div = document.createElement('div');
+                div.style.cssText = 'display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #f0f0f0;';
+                div.innerHTML = `<div><b>${esc(s.name)}</b><br><small>${esc(s.url)}</small></div>`;
+                const btn = document.createElement('button');
+                btn.className = 'd-btn bg-gray'; btn.textContent = 'X';
+                btn.onclick = function() { const s = getSites(); s.splice(i, 1); saveSites(s); openSettings(); };
+                div.appendChild(btn);
+                list.appendChild(div);
             });
             document.getElementById('dash-settings').style.display = 'flex';
         }
@@ -543,10 +557,12 @@
             const n = document.getElementById('add-n').value;
             const u = document.getElementById('add-u').value.trim().replace(/\/$/, "");
             if (!u) return;
-            let finalUrl = u.startsWith('http') ? u : 'https://' + u;
+            const rawUrl = u.startsWith('http') ? u : 'https://' + u;
+            const finalUrl = safeUrl(rawUrl);
+            if (!finalUrl) return;
             const sites = getSites();
             if(!sites.some(s=>s.url===finalUrl)) {
-                sites.push({ name: n || t('fallbackSiteName'), url: finalUrl });
+                sites.push({ name: safeStripHTML(n).trim().slice(0, 150) || t('fallbackSiteName'), url: finalUrl });
                 saveSites(sites);
                 openSettings();
                 document.getElementById('add-n').value=''; document.getElementById('add-u').value='';
@@ -561,7 +577,7 @@
             const title = getSiteName();
             div.innerHTML = `
                 <div style="font-weight:bold; margin-bottom:10px;">${t('newForumFound')}</div>
-                <div style="font-size:13px; margin-bottom:10px;">${t('addForumPrompt', { title: title })}</div>
+                <div style="font-size:13px; margin-bottom:10px;">${t('addForumPrompt', { title: esc(title) })}</div>
                 <div style="display:flex; gap:10px;">
                     <button id="p-yes" style="flex:1; background:#28a745; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">${t('yes')}</button>
                     <button id="p-no" style="flex:1; background:#dc3545; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">${t('no')}</button>
@@ -570,7 +586,7 @@
             document.body.appendChild(div);
             document.getElementById('p-yes').onclick = () => {
                 const sites = getSites();
-                sites.push({ name: title, url: url });
+                sites.push({ name: safeStripHTML(title).trim().slice(0, 150), url: url });
                 saveSites(sites);
                 div.remove();
                 alert(t('siteAdded'));
@@ -649,16 +665,18 @@
     const exporterModule = (function() {
 
         async function fetchAndProcessThread() {
-            let tid, title;
+            let tid, slug, title;
             if (unsafeWindow.ajaxify && unsafeWindow.ajaxify.data) {
                 tid = unsafeWindow.ajaxify.data.tid;
+                slug = unsafeWindow.ajaxify.data.slug;
                 title = unsafeWindow.ajaxify.data.title;
             }
             if (!tid) {
-                const match = window.location.pathname.match(/topic\/(\d+)/);
-                if (match && match[1]) tid = match[1];
+                const match = window.location.pathname.match(/topic\/(\d+)(?:\/([^/]+))?/);
+                if (match && match[1]) { tid = match[1]; slug = match[2] || tid; }
                 else throw new Error(t('errNoTid'));
             }
+            if (!slug) slug = tid;
             if (!title) {
                 const titleElement = document.querySelector('span[component="topic/title"]');
                 title = titleElement ? titleElement.textContent.trim() : document.title;
@@ -669,10 +687,10 @@
             const paginationData = await paginationResponse.json();
             const pageCount = paginationData.pagination.pageCount;
 
-            const pagePromises =[];
+            const pagePromises = [];
             for (let i = 1; i <= pageCount; i++) {
                 pagePromises.push(
-                    fetch(`${location.origin}/api/topic/${tid}?page=${i}`).then(res => {
+                    fetch(`${location.origin}/api/topic/${tid}/${slug}?page=${i}`).then(res => {
                         if (!res.ok) throw new Error(`${t('errLoadPage')}${i}`);
                         return res.json();
                     })
