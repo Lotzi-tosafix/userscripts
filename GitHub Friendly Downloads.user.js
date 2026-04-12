@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GitHub Friendly Downloads
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.0.1
 // @description  Clean and friendly GitHub downloads page with GitHub API integration.
 // @author       לאצי@ai
 // @match        https://github.com/*
