@@ -264,18 +264,14 @@
     };
 
     const MIME_TYPE_MAP = {
-        'application/vnd.android.package-archive': 'installer',
-        'application/x-apple-diskimage': 'installer',
-        'application/x-msdownload': 'installer',
-        'application/x-ms-dos-executable': 'installer',
-        'application/x-msi': 'installer',
-        'application/x-debian-package': 'installer',
-        'application/x-rpm': 'installer',
-        'application/zip': 'portable',
-        'application/x-7z-compressed': 'portable',
-        'application/gzip': 'portable',
-        'application/x-tar': 'portable',
-        'application/x-bzip2': 'portable',
+        // These MIME types unambiguously identify the file type
+        'application/vnd.android.package-archive': 'installer', // .apk - always an app package
+        'application/x-apple-diskimage': 'installer',           // .dmg - always a mac installer
+        'application/x-msi': 'installer',                       // .msi - always a windows installer
+        'application/x-debian-package': 'installer',            // .deb
+        'application/x-rpm': 'installer',                       // .rpm
+        // NOTE: application/x-msdownload and application/x-ms-dos-executable are NOT here
+        // because they apply to ALL .exe files (both installers and portables) - not reliable
     };
 
     // --- Parser Logic (hybrid: MIME type + filename) ---
