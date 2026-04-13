@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GitHub Friendly Downloads
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.1.0
 // @description  Clean and friendly GitHub downloads page with GitHub API integration.
 // @author       לאצי@ai
 // @match        https://github.com/*
@@ -407,6 +407,22 @@
         return match ? match[0] : '';
     }
 
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     function createCard(fileData) {
         const { name, size, href, parsed, downloadCount } = fileData;
 
@@ -425,22 +441,26 @@
             ? `<span class="gfd-download-count">⬇ ${formatDownloadCount(downloadCount)} ${LANG.downloads_count}</span>`
             : '';
 
+        const safeName = escapeHtml(name);
+        const safeHref = escapeHtml(href);
+        const safeSize = escapeHtml(size);
+
         const card = document.createElement('div');
         card.className = 'gfd-card';
         card.innerHTML = `
             <div class="gfd-card-header">
                 <div class="gfd-icon-box">${iconSvg}</div>
                 <div class="gfd-file-info">
-                    <div class="gfd-filename" title="${name}">${name}</div>
+                    <div class="gfd-filename" title="${safeName}">${safeName}</div>
                     <div class="gfd-tags">${tagsHtml}</div>
                 </div>
             </div>
             <div class="gfd-meta">
-                <span>${size}</span>
+                <span>${safeSize}</span>
                 ${countHtml}
                 <span>${parsed.os === 'other' ? '' : parsed.labelOS}</span>
             </div>
-            <a href="${href}" class="gfd-download-btn" rel="nofollow">
+            <a href="${safeHref}" class="gfd-download-btn" rel="nofollow">
                 ${ICONS.download} ${LANG.btn_download}
             </a>
         `;
