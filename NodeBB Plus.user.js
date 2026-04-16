@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeBB Plus
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.2.0
 // @description  Bilingual Integrated tools: Hub Dashboard, Thread Exporter, Smart Sidebar Links & Recent Topics. Smart Duplicate Prevention.
 // @author       לאצי&AI
 // @match        *://*/*
@@ -72,10 +72,14 @@
 
             // Exporter
             exportThread: "ייצוא שרשור",
-            copyJson: "העתק כ-JSON",
+            copyJson: "העתק JSON",
             copyJsonDesc: "מעתיק את כל השרשור ללוח ההדבקות",
-            dlJson: "הורד קובץ JSON",
+            dlJson: "הורד JSON",
             dlJsonDesc: "שומר את השרשור כקובץ מקומי במחשב",
+            copyMarkdownEx: "העתק Markdown",
+            dlMarkdown: "הורד Markdown",
+            copyHtml: "העתק HTML",
+            dlHtml: "הורד HTML",
             gatheringData: "אוסף נתונים, נא להמתין...",
             copiedPosts: "הועתקו {count} פוסטים ללוח!",
             downloadStarted: "הורדת {count} פוסטים החלה!",
@@ -120,10 +124,14 @@
 
             // Exporter
             exportThread: "Export Thread",
-            copyJson: "Copy as JSON",
+            copyJson: "Copy JSON",
             copyJsonDesc: "Copies the entire thread to clipboard",
             dlJson: "Download JSON",
             dlJsonDesc: "Saves the thread as a local file",
+            copyMarkdownEx: "Copy Markdown",
+            dlMarkdown: "Download Markdown",
+            copyHtml: "Copy HTML",
+            dlHtml: "Download HTML",
             gatheringData: "Gathering data, please wait...",
             copiedPosts: "Copied {count} posts to clipboard!",
             downloadStarted: "Download of {count} posts started!",
@@ -178,8 +186,13 @@
     // SHARED: פונקציית טולטיפ אוניברסלית לכל כפתורי הסרגל המותאמים
     // =================================================================
     function initNodebbTooltip(element) {
+        // בודק אם כבר אותחל (למנוע אתחול כפול)
+        if (element.hasAttribute('data-nbe-tooltip-init')) return;
+        
         function init() {
             try {
+                element.setAttribute('data-nbe-tooltip-init', 'true');
+                
                 new unsafeWindow.bootstrap.Tooltip(element, {
                     placement: isRtl ? 'left' : 'right',
                     container: 'body',
@@ -221,6 +234,47 @@
                 }
             }, 200);
         }
+    }
+
+    // מאתחל טולטיפים על כל האלמנטים הקיימים בדף
+    function initAllExistingTooltips() {
+        if (typeof unsafeWindow.bootstrap === 'undefined' || typeof unsafeWindow.bootstrap.Tooltip !== 'function') {
+            return; // Bootstrap עדיין לא נטען
+        }
+
+        // מאתחל טולטיפים על כל האלמנטים שיש להם data-bs-toggle="tooltip"
+        document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+            if (!el.hasAttribute('data-nbe-tooltip-init')) {
+                try {
+                    el.setAttribute('data-nbe-tooltip-init', 'true');
+                    
+                    new unsafeWindow.bootstrap.Tooltip(el, {
+                        placement: el.getAttribute('data-bs-placement') || (isRtl ? 'left' : 'right'),
+                        container: 'body',
+                        trigger: 'manual',
+                        popperConfig: { modifiers:[{ name: 'flip', enabled: false }] }
+                    });
+
+                    el.addEventListener('mouseenter', function() {
+                        const sidebar = document.querySelector('[component="sidebar/left"]');
+                        if (!sidebar || !sidebar.classList.contains('open')) {
+                            const tt = unsafeWindow.bootstrap.Tooltip.getInstance(el);
+                            if (tt) tt.show();
+                        }
+                    });
+
+                    el.addEventListener('mouseleave', function() {
+                        const tt = unsafeWindow.bootstrap.Tooltip.getInstance(el);
+                        if (tt) tt.hide();
+                    });
+
+                    el.addEventListener('click', function() {
+                        const tt = unsafeWindow.bootstrap.Tooltip.getInstance(el);
+                        if (tt) tt.hide();
+                    });
+                } catch (e) {}
+            }
+        });
     }
 
 
@@ -521,8 +575,8 @@
                         <a href="${safeUrl(tData.origin.url) || '#'}/topic/${esc(tData.slug)}" target="_blank" class="d-link">${esc(tData.title)}</a>
                         <div class="d-meta">
                             <span class="d-badge"><img src="${iconUrl}" style="width:14px; height:14px;" class="orb-fix" data-src="${iconUrl}"> ${esc(tData.origin.name)} <span style="color:#ccc">|</span> <i class="fa ${safeFaIcon(tData.category.icon)}"></i> ${esc(tData.category.name)}</span>
-                            <span><i class="fa fa-eye"></i> ${tData.viewcount}</span>
-                            <span><i class="fa fa-comment"></i> ${tData.postcount}</span>
+                            <span><i class="fa fa-eye"></i> ${parseInt(tData.viewcount)||0}</span>
+                            <span><i class="fa fa-comment"></i> ${parseInt(tData.postcount)||0}</span>
                             ${tData.pinned ? '<i class="fa fa-thumbtack text-danger"></i>' : ''}
                             ${tData.locked ? '<i class="fa fa-lock text-warning"></i>' : ''}
                         </div>
@@ -664,7 +718,7 @@
     // =================================================================
     const exporterModule = (function() {
 
-        async function fetchAndProcessThread() {
+        async function fetchAndProcessThread(format = 'json') {
             let tid, slug, title;
             if (unsafeWindow.ajaxify && unsafeWindow.ajaxify.data) {
                 tid = unsafeWindow.ajaxify.data.tid;
@@ -698,21 +752,99 @@
             }
 
             const allPagesData = await Promise.all(pagePromises);
-            const allPosts = allPagesData.flatMap(pageData => pageData.posts);
+            const rawPosts = allPagesData.flatMap(p => p.posts).filter(p => p && !p.deleted);
 
-            const processedPosts = allPosts
-                .filter(post => post && !post.deleted)
-                .map(post => {
-                    const contentMarkdown = turndownService.turndown(post.content || '').trim();
-                    return {
-                        pid: post.pid,
-                        author: post.user ? post.user.username : 'Unknown',
-                        content: contentMarkdown,
-                        reply_to_pid: post.toPid || null,
-                    };
+            // Markdown: raw content מה-API
+            if (format === 'md') {
+                const mdPosts = await Promise.all(rawPosts.map(async p => {
+                    try {
+                        const r = await fetch(`${location.origin}/api/v3/posts/${p.pid}/raw`);
+                        const data = r.ok ? await r.json() : null;
+                        const md = data?.response?.content || turndownService.turndown(p.content || '').trim();
+                        return { pid: p.pid, author: p.user?.username || 'Unknown', content: md, reply_to_pid: p.toPid || null };
+                    } catch {
+                        return { pid: p.pid, author: p.user?.username || 'Unknown', content: turndownService.turndown(p.content || '').trim(), reply_to_pid: p.toPid || null };
+                    }
+                }));
+                return { posts: mdPosts, title };
+            }
+
+            // HTML: p.content מפורסר
+            if (format === 'html') {
+                return {
+                    posts: rawPosts.map(p => ({ pid: p.pid, author: p.user?.username || 'Unknown', content: p.content || '', reply_to_pid: p.toPid || null })),
+                    title
+                };
+            }
+
+            // JSON (ברירת מחדל)
+            return {
+                posts: rawPosts.map(p => ({
+                    pid: p.pid,
+                    author: p.user ? p.user.username : 'Unknown',
+                    content: turndownService.turndown(p.content || '').trim(),
+                    reply_to_pid: p.toPid || null,
+                })),
+                title
+            };
+        }
+
+        function buildMarkdownDoc(title, posts) {
+            return `# ${title}\n\n` + posts.map(p =>
+                `## פוסט ${p.pid} — ${p.author}${p.reply_to_pid ? ` (בתגובה ל-${p.reply_to_pid})` : ''}\n\n${p.content}`
+            ).join('\n\n---\n\n');
+        }
+
+        async function imgToBase64(src) {
+            try {
+                const absUrl = src.startsWith('http') ? src : new URL(src, location.origin).href;
+                return await new Promise((resolve) => {
+                    GM_xmlhttpRequest({
+                        method: 'GET', url: absUrl, responseType: 'blob',
+                        onload: res => {
+                            if (res.status !== 200) { resolve(src); return; }
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result);
+                            reader.onerror = () => resolve(src);
+                            reader.readAsDataURL(res.response);
+                        },
+                        onerror: () => resolve(src)
+                    });
                 });
+            } catch { return src; }
+        }
 
-            return { posts: processedPosts, title: title };
+        async function buildHtmlDoc(title, posts) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = posts.map(p =>
+                `<article id="post-${p.pid}">
+  <header><strong>${esc(p.author)}</strong>${p.reply_to_pid ? ` <small>(בתגובה ל-#${p.reply_to_pid})</small>` : ''}</header>
+  <div class="content">${p.content}</div>
+</article>`
+            ).join('\n');
+
+            const imgs = Array.from(tmp.querySelectorAll('img'));
+            await Promise.all(imgs.map(async img => {
+                const src = img.getAttribute('src');
+                if (!src || src.startsWith('data:')) return;
+                img.src = await imgToBase64(src);
+                img.removeAttribute('loading');
+            }));
+
+            return `<!DOCTYPE html>
+<html dir="auto"><head><meta charset="UTF-8"><title>${esc(title)}</title>
+<style>
+  body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+  article { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+  header { font-size: .85rem; color: #666; margin-bottom: .5rem; }
+  img { max-width: 100%; height: auto; border-radius: 4px; }
+  pre { background: #f5f5f5; padding: .75rem; border-radius: 4px; overflow-x: auto; }
+  code { background: #f5f5f5; padding: .1em .3em; border-radius: 3px; }
+  blockquote { border-right: 3px solid #ddd; margin: 0; padding: .5rem 1rem; color: #555; }
+</style>
+</head><body><h1>${esc(title)}</h1>
+${tmp.innerHTML}
+</body></html>`;
         }
 
         function showStatus(msg, type) {
@@ -760,26 +892,36 @@
 
             menu.innerHTML = `
                 <li>
-                    <a class="dropdown-item rounded-1 d-flex align-items-center gap-2 p-2" href="#" id="nbe-action-copy" role="menuitem">
-                        <div class="flex-grow-1 d-flex flex-column">
-                            <span class="d-flex align-items-center gap-2">
-                                <i class="flex-shrink-0 fa fa-fw fa-clipboard text-secondary"></i>
-                                <span class="flex-grow-1 fw-semibold">${t('copyJson')}</span>
-                            </span>
-                            <div class="help-text text-secondary text-xs">${t('copyJsonDesc')}</div>
-                        </div>
-                    </a>
+                    <div class="d-flex gap-1 p-1">
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-copy-json" role="menuitem">
+                            <i class="fa fa-fw fa-clipboard text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('copyJson')}</span>
+                        </a>
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-dl-json" role="menuitem">
+                            <i class="fa fa-fw fa-file-code-o text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('dlJson')}</span>
+                        </a>
+                    </div>
                 </li>
+                <li><hr class="dropdown-divider my-1"></li>
                 <li>
-                    <a class="dropdown-item rounded-1 d-flex align-items-center gap-2 p-2" href="#" id="nbe-action-dl" role="menuitem">
-                        <div class="flex-grow-1 d-flex flex-column">
-                            <span class="d-flex align-items-center gap-2">
-                                <i class="flex-shrink-0 fa fa-fw fa-file-code-o text-secondary"></i>
-                                <span class="flex-grow-1 fw-semibold">${t('dlJson')}</span>
-                            </span>
-                            <div class="help-text text-secondary text-xs">${t('dlJsonDesc')}</div>
-                        </div>
-                    </a>
+                    <div class="d-flex gap-1 p-1">
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-copy-md" role="menuitem">
+                            <i class="fa fa-fw fa-clipboard text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('copyMarkdownEx')}</span>
+                        </a>
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-dl-md" role="menuitem">
+                            <i class="fa fa-fw fa-file-text-o text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('dlMarkdown')}</span>
+                        </a>
+                    </div>
+                </li>
+                <li><hr class="dropdown-divider my-1"></li>
+                <li>
+                    <div class="d-flex gap-1 p-1">
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-copy-html" role="menuitem">
+                            <i class="fa fa-fw fa-clipboard text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('copyHtml')}</span>
+                        </a>
+                        <a class="dropdown-item rounded-1 d-flex flex-column align-items-center gap-1 p-2 flex-fill text-center" href="#" id="nbe-action-dl-html" role="menuitem">
+                            <i class="fa fa-fw fa-code text-secondary"></i><span class="fw-semibold" style="font-size:11px;">${t('dlHtml')}</span>
+                        </a>
+                    </div>
                 </li>
                 <li id="nbe-dropdown-status" style="display:none;" class="px-2">
                     <div id="nbe-status-text"></div>
@@ -790,54 +932,70 @@
             wrapper.appendChild(menu);
             container.appendChild(wrapper);
 
+            const allBtns = () => ['nbe-action-copy-json','nbe-action-dl-json','nbe-action-copy-md','nbe-action-dl-md','nbe-action-copy-html','nbe-action-dl-html'].map(id => document.getElementById(id));
+
             const handleAction = async (e, actionType) => {
                 e.preventDefault();
                 e.stopPropagation();
 
-                const btnCopy = document.getElementById('nbe-action-copy');
-                const btnDl = document.getElementById('nbe-action-dl');
-
-                if (btnCopy.classList.contains('disabled')) return;
+                const btns = allBtns();
+                if (btns[0].classList.contains('disabled')) return;
 
                 showStatus(t('gatheringData'), 'info');
-                btnCopy.classList.add('disabled');
-                btnDl.classList.add('disabled');
-                btnCopy.style.pointerEvents = 'none';
-                btnDl.style.pointerEvents = 'none';
+                btns.forEach(b => { b.classList.add('disabled'); b.style.pointerEvents = 'none'; });
+
+                const safeFilename = (title, ext) =>
+                    `${(title.replace(/[<>:"/\\|?*]+/g, '_').replace(/\s+/g, '_').trim()) || 'thread'}.${ext}`;
+
+                const download = (content, filename, mime) => {
+                    const blob = new Blob([content], { type: mime });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                };
 
                 try {
-                    const data = await fetchAndProcessThread();
-                    const json = JSON.stringify({ title: data.title, posts: data.posts }, null, 2);
-
-                    if (actionType === 'copy') {
-                        GM_setClipboard(json);
+                    if (actionType === 'copy-json') {
+                        const data = await fetchAndProcessThread('json');
+                        GM_setClipboard(JSON.stringify({ title: data.title, posts: data.posts }, null, 2));
                         showStatus(t('copiedPosts', { count: data.posts.length }), 'success');
-                    } else {
-                        const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        const safeTitle = data.title.replace(/[<>:"/\\|?*]+/g, '_').replace(/\s+/g, '_').trim();
-                        a.href = url;
-                        a.download = `${safeTitle || 'thread'}.json`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
+                    } else if (actionType === 'dl-json') {
+                        const data = await fetchAndProcessThread('json');
+                        download(JSON.stringify({ title: data.title, posts: data.posts }, null, 2), safeFilename(data.title, 'json'), 'application/json;charset=utf-8');
+                        showStatus(t('downloadStarted', { count: data.posts.length }), 'success');
+                    } else if (actionType === 'copy-md') {
+                        const data = await fetchAndProcessThread('md');
+                        GM_setClipboard(buildMarkdownDoc(data.title, data.posts));
+                        showStatus(t('copiedPosts', { count: data.posts.length }), 'success');
+                    } else if (actionType === 'dl-md') {
+                        const data = await fetchAndProcessThread('md');
+                        download(buildMarkdownDoc(data.title, data.posts), safeFilename(data.title, 'md'), 'text/markdown;charset=utf-8');
+                        showStatus(t('downloadStarted', { count: data.posts.length }), 'success');
+                    } else if (actionType === 'copy-html') {
+                        const data = await fetchAndProcessThread('html');
+                        GM_setClipboard(await buildHtmlDoc(data.title, data.posts));
+                        showStatus(t('copiedPosts', { count: data.posts.length }), 'success');
+                    } else if (actionType === 'dl-html') {
+                        const data = await fetchAndProcessThread('html');
+                        download(await buildHtmlDoc(data.title, data.posts), safeFilename(data.title, 'html'), 'text/html;charset=utf-8');
                         showStatus(t('downloadStarted', { count: data.posts.length }), 'success');
                     }
                 } catch (error) {
                     console.error(error);
                     showStatus(t('errorPrefix') + error.message, 'error');
                 } finally {
-                    btnCopy.classList.remove('disabled');
-                    btnDl.classList.remove('disabled');
-                    btnCopy.style.pointerEvents = 'auto';
-                    btnDl.style.pointerEvents = 'auto';
+                    btns.forEach(b => { b.classList.remove('disabled'); b.style.pointerEvents = 'auto'; });
                 }
             };
 
-            document.getElementById('nbe-action-copy').addEventListener('click', (e) => handleAction(e, 'copy'));
-            document.getElementById('nbe-action-dl').addEventListener('click', (e) => handleAction(e, 'dl'));
+            document.getElementById('nbe-action-copy-json').addEventListener('click',  e => handleAction(e, 'copy-json'));
+            document.getElementById('nbe-action-dl-json').addEventListener('click',    e => handleAction(e, 'dl-json'));
+            document.getElementById('nbe-action-copy-md').addEventListener('click',    e => handleAction(e, 'copy-md'));
+            document.getElementById('nbe-action-dl-md').addEventListener('click',      e => handleAction(e, 'dl-md'));
+            document.getElementById('nbe-action-copy-html').addEventListener('click',  e => handleAction(e, 'copy-html'));
+            document.getElementById('nbe-action-dl-html').addEventListener('click',    e => handleAction(e, 'dl-html'));
         }
 
         function injectPostButtons() {
@@ -1030,10 +1188,155 @@
 
 
     // =================================================================
+    // MODULE 6: Profile Status
+    // מציג נקודת סטטוס על תמונת הפרופיל בדף המשתמש
+    // =================================================================
+    const profileStatusModule = (function() {
+        function injectProfileStatus() {
+            const match = location.pathname.match(/^(?:\/[^/]+)?\/user\/([^/]+)/);
+            if (!match) return;
+
+            const wrapper = document.querySelector('[component="profile/change/picture"]');
+            if (!wrapper || wrapper.querySelector('.nbe-profile-status')) return;
+
+            const userslug = match[1];
+
+            fetch(`${location.origin}/api/user/${userslug}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data || !data.status) return;
+                    if (wrapper.querySelector('.nbe-profile-status')) return;
+
+                    const statusMap = {
+                        online:  { cls: 'online',  label: isRtl ? 'מחובר'     : 'Online' },
+                        offline: { cls: 'offline', label: isRtl ? 'לא מחובר'  : 'Offline' },
+                        dnd:     { cls: 'dnd',     label: isRtl ? 'אל תפריע'  : 'Do not disturb' },
+                        away:    { cls: 'away',    label: isRtl ? 'לא בסביבה' : 'Away' },
+                    };
+                    const s = statusMap[data.status] || statusMap.offline;
+
+                    const span = document.createElement('span');
+                    span.className = `nbe-profile-status position-absolute border border-white border-2 rounded-circle status ${s.cls}`;
+                    span.style.cssText = 'width:20px;height:20px;bottom:6px;left:6px;display:block;';
+                    span.title = s.label;
+                    span.innerHTML = `<span class="visually-hidden">${esc(s.label)}</span>`;
+
+                    wrapper.style.position = 'relative';
+                    wrapper.appendChild(span);
+                })
+                .catch(() => {});
+        }
+
+        return { injectProfileStatus };
+    })();
+
+    // =================================================================
+    // MODULE 7: WhatsApp-style Chat
+    // עיצוב צ'אט כמו וואטסאפ + ציטוט בלחיצה כפולה + auto-resize
+    // =================================================================
+    const whatsappChatModule = (function() {
+        const CHAT_BG_URL = 'https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png';
+        const CHAT_BG_CACHE_KEY = 'nbe_chat_bg_b64';
+
+        function applyChatStyles(bgValue) {
+            GM_addStyle(`
+                [class="modal-content ui-resizable"],
+                [component="chat/main-wrapper"] {
+                    background-image: url(${bgValue});
+                }
+                [data-self="0"][component="chat/message"] {
+                    background-color: #fff;
+                    border-radius: 20px 20px 0px 20px;
+                    margin-left: 50px !important;
+                    margin-bottom: 10px !important;
+                    padding: 10px !important;
+                }
+                [data-self="1"][component="chat/message"] {
+                    background-color: #e7ffdb;
+                    border-radius: 20px 20px 20px 0px;
+                    margin-right: 50px !important;
+                    margin-bottom: 10px !important;
+                    padding: 10px !important;
+                }
+                [data-self]:not([data-self="0"]):not([data-self="1"]) + [data-self] {
+                    margin-top: 25px !important;
+                }
+                .chat-message.mx-2.pe-2.clear {
+                    padding: 15px 20px 0px 20px !important;
+                }
+            `);
+        }
+
+        function autoResizeChatInput(input) {
+            const ORIGINAL_HEIGHT = '24px';
+            const LINE_HEIGHT = 24;
+            const MAX_LINES = 6;
+            if (!input.value.trim()) {
+                input.style.height = ORIGINAL_HEIGHT;
+                return;
+            }
+            input.style.height = 'auto';
+            const needed = Math.min(input.scrollHeight, LINE_HEIGHT * MAX_LINES);
+            input.style.height = needed + 'px';
+        }
+
+        function init() {
+            // טעינת תמונת רקע מהמטמון (GM_getValue) או מהרשת
+            const cached = GM_getValue(CHAT_BG_CACHE_KEY);
+            if (cached) {
+                applyChatStyles(cached);
+            } else {
+                applyChatStyles(CHAT_BG_URL);
+                GM_xmlhttpRequest({
+                    method: 'GET', url: CHAT_BG_URL, responseType: 'blob',
+                    onload: res => {
+                        if (res.status !== 200) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const b64 = reader.result;
+                            GM_setValue(CHAT_BG_CACHE_KEY, b64);
+                            document.querySelectorAll('[component="chat/main-wrapper"], .modal-content.ui-resizable')
+                                .forEach(el => { el.style.backgroundImage = `url(${b64})`; });
+                        };
+                        reader.readAsDataURL(res.response);
+                    }
+                });
+            }
+
+            // ציטוט בלחיצה כפולה
+            document.addEventListener('dblclick', e => {
+                const msgBody = e.target.closest('[component="chat/message/body"]');
+                if (!msgBody) return;
+                const input = document.querySelector('[component="chat/input"]');
+                if (!input) return;
+                const text = msgBody.innerText.trim();
+                if (!text) return;
+                const quoted = text.split('\n').map(line => `> ${line}`).join('\n');
+                input.value += (input.value ? '\n' : '') + quoted + '\n\n';
+                input.focus();
+                autoResizeChatInput(input);
+            });
+
+            // auto-resize textarea
+            document.addEventListener('input', e => {
+                if (e.target.matches('[component="chat/input"]')) autoResizeChatInput(e.target);
+            });
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey && e.target.matches('[component="chat/input"]')) {
+                    setTimeout(() => autoResizeChatInput(e.target), 50);
+                }
+            });
+        }
+
+        return { init };
+    })();
+
+    // =================================================================
     // EXECUTION: הרצת המודולים באופן מאוחד ואלגנטי
     // =================================================================
 
     dashboardModule.init();
+    whatsappChatModule.init();
 
     const globalObserver = new MutationObserver(() => {
         if (dashboardModule.isMySite()) {
@@ -1048,6 +1351,10 @@
 
         exporterModule.injectExportDropdown();
         exporterModule.injectPostButtons();
+        profileStatusModule.injectProfileStatus();
+
+        // מאתחל טולטיפים על אלמנטים חדשים שנוספו ל-DOM
+        initAllExistingTooltips();
     });
 
     globalObserver.observe(document.body, { childList: true, subtree: true });
@@ -1064,5 +1371,9 @@
 
     exporterModule.injectExportDropdown();
     exporterModule.injectPostButtons();
+    profileStatusModule.injectProfileStatus();
+
+    // מאתחל טולטיפים קיימים בטעינה ראשונית
+    initAllExistingTooltips();
 
 })();
