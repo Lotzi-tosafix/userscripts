@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NodeBB Plus
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.2
 // @description  Bilingual Integrated tools: Hub Dashboard, Thread Exporter, Smart Sidebar Links & Recent Topics. Smart Duplicate Prevention.
 // @author       לאצי&AI
 // @match        *://*/*
@@ -31,7 +31,7 @@
     }
 
     if (!isNodeBB()) return;
-    console.log("NodeBB Detected - Loading Ultimate Tool v4.7...");
+    // NodeBB detected - silent load
 
     // =================================================================
     // I18N: מנגנון שפות וזיהוי אוטומטי
@@ -179,7 +179,22 @@
     }
 
     function getBasePath() {
-        return (unsafeWindow.config && unsafeWindow.config.relative_path) || '';
+        // 1. config.relative_path של NodeBB (הכי אמין ב-userscript)
+        try {
+            const rp = unsafeWindow.config?.relative_path;
+            if (typeof rp === 'string') return rp;
+        } catch(e) {}
+        // 2. data-relative-path על תגית html
+        const attr = document.documentElement.getAttribute('data-relative-path');
+        if (attr !== null) return attr;
+        // 3. חילוץ מה-URL הנוכחי
+        const m = location.pathname.match(/^(.*?)\/(api|topic|category|user|recent|unread|popular|top|tags|groups)\b/);
+        if (m && m[1]) return m[1];
+        return '';
+    }
+
+    function getForumBase() {
+        return location.origin + getBasePath();
     }
 
     // =================================================================
@@ -357,7 +372,7 @@
         replacement: function (content, node) {
             let src = node.getAttribute('src');
             if (src && !src.startsWith('http')) {
-                try { src = new URL(src, location.origin).href; } catch (e) {}
+                try { src = new URL(src, getForumBase()).href; } catch (e) {}
             }
             return `![${node.alt || ''}](${src})`;
         }
@@ -736,7 +751,7 @@
                 title = titleElement ? titleElement.textContent.trim() : document.title;
             }
 
-            const paginationResponse = await fetch(`${location.origin}/api/topic/pagination/${tid}`);
+            const paginationResponse = await fetch(`${getForumBase()}/api/topic/pagination/${tid}`);
             if (!paginationResponse.ok) throw new Error(`${t('errPageInfo')}${paginationResponse.statusText}`);
             const paginationData = await paginationResponse.json();
             const pageCount = paginationData.pagination.pageCount;
@@ -744,7 +759,7 @@
             const pagePromises = [];
             for (let i = 1; i <= pageCount; i++) {
                 pagePromises.push(
-                    fetch(`${location.origin}/api/topic/${tid}/${slug}?page=${i}`).then(res => {
+                    fetch(`${getForumBase()}/api/topic/${tid}/${slug}?page=${i}`).then(res => {
                         if (!res.ok) throw new Error(`${t('errLoadPage')}${i}`);
                         return res.json();
                     })
@@ -758,7 +773,7 @@
             if (format === 'md') {
                 const mdPosts = await Promise.all(rawPosts.map(async p => {
                     try {
-                        const r = await fetch(`${location.origin}/api/v3/posts/${p.pid}/raw`);
+                        const r = await fetch(`${getForumBase()}/api/v3/posts/${p.pid}/raw`);
                         const data = r.ok ? await r.json() : null;
                         const md = data?.response?.content || turndownService.turndown(p.content || '').trim();
                         return { pid: p.pid, author: p.user?.username || 'Unknown', content: md, reply_to_pid: p.toPid || null };
@@ -797,7 +812,7 @@
 
         async function imgToBase64(src) {
             try {
-                const absUrl = src.startsWith('http') ? src : new URL(src, location.origin).href;
+                const absUrl = src.startsWith('http') ? src : new URL(src, getForumBase()).href;
                 return await new Promise((resolve) => {
                     GM_xmlhttpRequest({
                         method: 'GET', url: absUrl, responseType: 'blob',
@@ -1201,7 +1216,7 @@ ${tmp.innerHTML}
 
             const userslug = match[1];
 
-            fetch(`${location.origin}/api/user/${userslug}`)
+            fetch(`${getForumBase()}/api/user/${userslug}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
                     if (!data || !data.status) return;
@@ -1332,29 +1347,186 @@ ${tmp.innerHTML}
     })();
 
     // =================================================================
+    // MODULE 8: Dislike Confirmation
+    // חלון אישור לפני מתן דיסלייק
+    // =================================================================
+    const dislikeConfirmModule = (function() {
+        const DISLIKE_SEL = [
+            '[component="post/downvote"]',
+            '[data-component="post/downvote"]',
+            '[class*="downvote"]',
+            '[class*="dislike"]',
+            '[id*="dislike"]',
+            'i.fa-thumbs-down',
+        ].join(', ');
+
+        const labels = {
+            title:   isRtl ? 'אישור דיסלייק'                       : 'Confirm Downvote',
+            body:    isRtl ? 'האם אתה בטוח שברצונך לתת דיסלייק?'   : 'Are you sure you want to downvote?',
+            confirm: isRtl ? 'כן, תן דיסלייק'                      : 'Yes, downvote',
+            cancel:  isRtl ? 'ביטול'                                : 'Cancel',
+        };
+
+        let _confirming = false;
+        let _pendingTarget = null;
+        let _popup = null;
+
+        function buildPopup() {
+            if (_popup) return;
+            _popup = document.createElement('div');
+            _popup.id = 'nbe-dislike-popup';
+            _popup.setAttribute('role', 'dialog');
+            _popup.setAttribute('aria-modal', 'true');
+            _popup.setAttribute('aria-label', labels.title);
+            _popup.style.cssText = `
+                display:none; position:absolute; z-index:99999;
+                bottom:calc(100% + 6px);
+                ${isRtl ? 'left:0;' : 'right:0;'}
+                background:#fff; border-radius:12px;
+                box-shadow:0 8px 32px rgba(0,0,0,.18);
+                padding:14px 16px 12px; width:220px;
+                font-family:inherit; direction:${isRtl ? 'rtl' : 'ltr'};
+                border:1px solid #e2e8f0; white-space:nowrap;
+            `;
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:13px;font-weight:700;color:#1a202c;margin-bottom:6px;display:flex;align-items:center;gap:6px;white-space:normal;';
+            title.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e53e3e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>`;
+            title.appendChild(document.createTextNode(labels.title));
+
+            const body = document.createElement('div');
+            body.style.cssText = 'font-size:12px;color:#4a5568;margin-bottom:10px;white-space:normal;';
+            body.textContent = labels.body;
+
+            const btns = document.createElement('div');
+            btns.style.cssText = `display:flex;gap:6px;${isRtl ? 'flex-direction:row-reverse;' : ''}`;
+
+            const btnConfirm = document.createElement('button');
+            btnConfirm.textContent = labels.confirm;
+            btnConfirm.style.cssText = 'flex:1;padding:6px 8px;border-radius:8px;border:none;background:#e53e3e;color:#fff;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;';
+
+            const btnCancel = document.createElement('button');
+            btnCancel.textContent = labels.cancel;
+            btnCancel.style.cssText = 'flex:1;padding:6px 8px;border-radius:8px;border:none;background:#f0f4f8;color:#4a5568;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;';
+
+            btns.appendChild(btnConfirm);
+            btns.appendChild(btnCancel);
+            _popup.appendChild(title);
+            _popup.appendChild(body);
+            _popup.appendChild(btns);
+
+            btnConfirm.addEventListener('click', e => {
+                e.stopPropagation();
+                hidePopup();
+                if (_pendingTarget) {
+                    _confirming = true;
+                    _pendingTarget.click();
+                    setTimeout(() => { _confirming = false; }, 600);
+                }
+                _pendingTarget = null;
+            });
+
+            btnCancel.addEventListener('click', e => {
+                e.stopPropagation();
+                hidePopup();
+                _pendingTarget = null;
+            });
+
+            document.addEventListener('click', e => {
+                if (_popup.style.display !== 'none' && !_popup.contains(e.target) && e.target !== _pendingTarget) {
+                    hidePopup();
+                    _pendingTarget = null;
+                }
+            });
+
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && _popup.style.display !== 'none') {
+                    hidePopup();
+                    _pendingTarget = null;
+                }
+            });
+        }
+
+        function showPopupNear(anchorEl) {
+            if (_popup && _popup.parentElement && _popup.parentElement !== anchorEl) {
+                _popup.parentElement.style.position = '';
+                _popup.parentElement.removeChild(_popup);
+                _popup = null;
+            }
+
+            buildPopup();
+            anchorEl.style.position = 'relative';
+            anchorEl.appendChild(_popup);
+            _popup.style.display = 'block';
+        }
+
+        function hidePopup() {
+            if (_popup) _popup.style.display = 'none';
+        }
+
+        function init() {
+            document.addEventListener('click', e => {
+                if (_confirming) return;
+
+                let el = e.target;
+                let found = null;
+                while (el && el !== document.body) {
+                    if (
+                        el.getAttribute('component') === 'post/downvote' ||
+                        el.getAttribute('data-component') === 'post/downvote' ||
+                        (el.className && typeof el.className === 'string' && (
+                            el.className.includes('downvote') || el.className.includes('dislike')
+                        ))
+                    ) {
+                        found = el;
+                        break;
+                    }
+                    el = el.parentElement;
+                }
+
+                if (!found) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _pendingTarget = found;
+                showPopupNear(found);
+            }, true);
+        }
+
+        return { init };
+    })();
+
+    // =================================================================
     // EXECUTION: הרצת המודולים באופן מאוחד ואלגנטי
     // =================================================================
 
     dashboardModule.init();
     whatsappChatModule.init();
+    dislikeConfirmModule.init();
 
+    let _observerBusy = false;
     const globalObserver = new MutationObserver(() => {
-        if (dashboardModule.isMySite()) {
-            dashboardModule.ensureMenuButton();
-            dashboardModule.updateActiveState();
+        if (_observerBusy) return;
+        _observerBusy = true;
+        try {
+            if (dashboardModule.isMySite()) {
+                dashboardModule.ensureMenuButton();
+                dashboardModule.updateActiveState();
+            }
+            sidebarLinksModule.injectLinks();
+
+            recentTopicsModule.injectButton();
+            recentTopicsModule.updatePage();
+            recentTopicsModule.updateActiveState();
+
+            exporterModule.injectExportDropdown();
+            exporterModule.injectPostButtons();
+            profileStatusModule.injectProfileStatus();
+
+            // מאתחל טולטיפים על אלמנטים חדשים שנוספו ל-DOM
+            initAllExistingTooltips();
+        } finally {
+            _observerBusy = false;
         }
-        sidebarLinksModule.injectLinks();
-
-        recentTopicsModule.injectButton();
-        recentTopicsModule.updatePage();
-        recentTopicsModule.updateActiveState();
-
-        exporterModule.injectExportDropdown();
-        exporterModule.injectPostButtons();
-        profileStatusModule.injectProfileStatus();
-
-        // מאתחל טולטיפים על אלמנטים חדשים שנוספו ל-DOM
-        initAllExistingTooltips();
     });
 
     globalObserver.observe(document.body, { childList: true, subtree: true });
