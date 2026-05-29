@@ -2,7 +2,7 @@
 // @name         Gemini NetFree Image
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  מונע הורדת תמונות חסומות מג'מיני בנטפרי, מפענח שרתי הפניה, משחרר את ה-UI של ג'מיני ומוסיף כפתורי הורדה מעוצבים
+// @description  מונע הורדת תמונות חסומות בנטפרי, מוסיף תמיכה דו-לשונית (עברית/אנגלית) וכפתורי הורדה מעוצבים
 // @author       לאצי&AI
 // @match        https://gemini.google.com/*
 // @match        https://lh3.googleusercontent.com/*
@@ -46,11 +46,11 @@
 
                 // ניקוי ושחרור ה-UI של ג'מיני מקיפאון (בלי ריענון דף)
                 setTimeout(() => {
-                    // 1. סגירת חלונית ההתראה של ההורדה
+                    // סגירת חלונית ההתראה של ההורדה
                     const closeBtn = document.querySelector('gem-icon-button[data-test-id="close-button"] button');
                     if (closeBtn) closeBtn.click();
 
-                    // 2. שחרור חסימת כפתורי ההורדה שנותרו קפואים
+                    // שחרור חסימת כפתורי ההורדה שנותרו קפואים
                     const downloadButtons = document.querySelectorAll('gem-icon-button[data-test-id="download-generated-image-button"]');
                     downloadButtons.forEach(btnHost => {
                         btnHost.classList.remove('gem-button-disabled');
@@ -60,9 +60,9 @@
                             innerBtn.classList.remove('mat-mdc-button-disabled');
                         }
                     });
-                }, 1500); // ממתינים מעט כדי לאפשר לג'מיני לסיים להציג את האלמנטים לפני שננקה אותם
+                }, 1500);
 
-                // מניעת המשך ההורדה האוטומטית של קובץ תמונת החסימה למחשב
+                // מניעת המשך ההורדה האוטומטית של קובץ תמונת החסימה
                 return new Promise(() => {});
             }
 
@@ -82,7 +82,21 @@
     }
 
     function injectControlButtons(imgUrl) {
-        // יצירת אלמנט סגנון מודרני ומינימליסטי
+        // זיהוי שפת הדפדפן (עברית או כל שפה אחרת שתיפול לאנגלית)
+        const isHebrew = navigator.language.startsWith('he');
+        
+        // מילון תרגומים
+        const i18n = {
+            copyDefault: isHebrew ? 'העתקת תמונה' : 'Copy Image',
+            copying: isHebrew ? 'מעתיק...' : 'Copying...',
+            copySuccess: isHebrew ? 'הועתק בהצלחה!' : 'Copied successfully!',
+            copyFallback: isHebrew ? 'הקישור הועתק!' : 'URL copied!',
+            downloadDefault: isHebrew ? 'הורדת תמונה' : 'Download Image',
+            downloading: isHebrew ? 'מוריד...' : 'Downloading...',
+            downloadSuccess: isHebrew ? 'הורדה הושלמה!' : 'Download complete!'
+        };
+
+        // יצירת אלמנט סגנון דינמי (כולל הגדרת כיוון RTL/LTR לטולטיפ)
         const style = document.createElement('style');
         style.textContent = `
             .netfree-img-controls {
@@ -138,7 +152,7 @@
                 pointer-events: none;
                 transition: opacity 0.15s ease, transform 0.15s ease;
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                direction: rtl;
+                direction: ${isHebrew ? 'rtl' : 'ltr'};
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             }
             .netfree-btn:hover::after {
@@ -155,7 +169,7 @@
         // כפתור העתקה
         const copyBtn = document.createElement('button');
         copyBtn.className = 'netfree-btn';
-        copyBtn.setAttribute('data-tooltip', 'העתקת תמונה');
+        copyBtn.setAttribute('data-tooltip', i18n.copyDefault);
         copyBtn.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -166,7 +180,7 @@
         // כפתור הורדה
         const downloadBtn = document.createElement('button');
         downloadBtn.className = 'netfree-btn';
-        downloadBtn.setAttribute('data-tooltip', 'הורדת תמונה');
+        downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault);
         downloadBtn.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -175,36 +189,35 @@
             </svg>
         `;
 
-        // לוגיקת העתקת קובץ התמונה ללוח (Clipboard)
+        // לוגיקת העתקת קובץ התמונה
         copyBtn.addEventListener('click', async () => {
             try {
-                copyBtn.setAttribute('data-tooltip', 'מעתיק...');
+                copyBtn.setAttribute('data-tooltip', i18n.copying);
                 const response = await fetch(imgUrl);
                 const blob = await response.blob();
-
-                // שימוש ב-Clipboard API להעתקת קובץ התמונה עצמו (ולא רק הקישור)
+                
                 await navigator.clipboard.write([
                     new ClipboardItem({ [blob.type]: blob })
                 ]);
-
-                copyBtn.setAttribute('data-tooltip', 'הועתק בהצלחה!');
-                setTimeout(() => copyBtn.setAttribute('data-tooltip', 'העתקת תמונה'), 2000);
+                
+                copyBtn.setAttribute('data-tooltip', i18n.copySuccess);
+                setTimeout(() => copyBtn.setAttribute('data-tooltip', i18n.copyDefault), 2000);
             } catch (err) {
                 console.warn('CORS or Clipboard restrictions. Copying URL instead.', err);
                 navigator.clipboard.writeText(imgUrl);
-                copyBtn.setAttribute('data-tooltip', 'הקישור הועתק!');
-                setTimeout(() => copyBtn.setAttribute('data-tooltip', 'העתקת תמונה'), 2000);
+                copyBtn.setAttribute('data-tooltip', i18n.copyFallback);
+                setTimeout(() => copyBtn.setAttribute('data-tooltip', i18n.copyDefault), 2000);
             }
         });
 
         // לוגיקת הורדת קובץ התמונה
         downloadBtn.addEventListener('click', async () => {
             try {
-                downloadBtn.setAttribute('data-tooltip', 'מוריד...');
+                downloadBtn.setAttribute('data-tooltip', i18n.downloading);
                 const response = await fetch(imgUrl);
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
-
+                
                 const a = document.createElement('a');
                 a.href = blobUrl;
                 a.download = 'gemini-image.png';
@@ -212,12 +225,11 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(blobUrl);
-
-                downloadBtn.setAttribute('data-tooltip', 'הורדה הושלמה!');
-                setTimeout(() => downloadBtn.setAttribute('data-tooltip', 'הורדת תמונה'), 2000);
+                
+                downloadBtn.setAttribute('data-tooltip', i18n.downloadSuccess);
+                setTimeout(() => downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault), 2000);
             } catch (err) {
                 console.error('Download failed', err);
-                // גיבוי למקרה שהורדת ה-Blob נכשלה
                 window.location.href = imgUrl.replace('=s0', '=s0-d');
             }
         });
