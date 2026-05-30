@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini NetFree Image
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  מונע הורדת תמונות חסומות בנטפרי, מוסיף תמיכה דו-לשונית (עברית/אנגלית) וכפתורי הורדה מעוצבים
 // @author       לאצי&AI
 // @match        https://gemini.google.com/*
@@ -15,8 +15,9 @@
     'use strict';
 
     const hostname = window.location.hostname;
+    const isHebrew = navigator.language.startsWith('he');
 
-    // --- 1. חלק א': יירוט ההורדה בג'מיני ---
+    // --- 1. חלק א': יירוט ההורדה בג'מיני ושינוי ההודעה הקופצת ---
     if (hostname.includes('gemini.google.com')) {
         const originalFetch = window.fetch;
 
@@ -44,48 +45,101 @@
                     console.error('NetFree Script: Error processing URL', e);
                 }
 
-                // ניקוי ושחרור ה-UI של ג'מיני מקיפאון (בלי ריענון דף)
-                setTimeout(() => {
-                    // סגירת חלונית ההתראה של ההורדה
-                    const closeBtn = document.querySelector('gem-icon-button[data-test-id="close-button"] button');
-                    if (closeBtn) closeBtn.click();
+                // הפעלת תצפיתן (Observer) שיתפוס את הודעת השגיאה ויעצב אותה מחדש
+                overrideNextSnackbar();
 
-                    // שחרור חסימת כפתורי ההורדה שנותרו קפואים
-                    const downloadButtons = document.querySelectorAll('gem-icon-button[data-test-id="download-generated-image-button"]');
-                    downloadButtons.forEach(btnHost => {
-                        btnHost.classList.remove('gem-button-disabled');
-                        const innerBtn = btnHost.querySelector('button');
-                        if (innerBtn) {
-                            innerBtn.removeAttribute('disabled');
-                            innerBtn.classList.remove('mat-mdc-button-disabled');
-                        }
-                    });
-                }, 1500);
-
-                // מניעת המשך ההורדה האוטומטית של קובץ תמונת החסימה
-                return new Promise(() => {});
+                // דחיית ההבטחה (משחרר את כפתור ההורדה ומפעיל את הודעת השגיאה שתכף נשנה)
+                return Promise.reject(new Error('NetFree Script: Aborting fetch to trigger Gemini UI reset.'));
             }
 
             return originalFetch.apply(this, args);
         };
     }
 
-    // --- 2. חלק ב': הזרקת כפתורי הורדה והעתקה בדף התמונה המלאה ---
-    if (hostname.includes('lh3.google')) {
-        window.addEventListener('DOMContentLoaded', () => {
-            // וידוא שאנו נמצאים בדף המציג תמונה בלבד
-            const img = document.querySelector('img');
-            if (!img) return;
+    function overrideNextSnackbar() {
+        const successMsg = isHebrew ? 'התמונה המקורית נפתחה בכרטיסייה חדשה.' : 'Original image opened in a new tab.';
 
-            injectControlButtons(img.src);
+        const observer = new MutationObserver((mutations) => {
+            for (let mutation of mutations) {
+                for (let node of mutation.addedNodes) {
+                    if (node.nodeType === 1) { // אם זה אלמנט HTML
+                        const label = node.classList.contains('mat-mdc-snack-bar-label') ? node : node.querySelector('.mat-mdc-snack-bar-label');
+
+                        // מחפשים את ההודעה הרלוונטית
+                        if (label && label.textContent && (label.textContent.includes('בעיה') || label.textContent.includes('error') || label.textContent.includes('problem'))) {
+
+                            // 1. שינוי הטקסט
+                            label.textContent = successMsg;
+
+                            // 2. תיקון העיצוב (החזרת ה"נפח" והפונט של גוגל)
+                            label.style.fontFamily = '"Google Sans", "Segoe UI", system-ui, sans-serif';
+                            label.style.fontSize = '14px';
+                            label.style.lineHeight = '20px';
+                            label.style.fontWeight = '400';
+                            label.style.padding = '14px 16px';
+
+                            // תיקון הקונטיינר העוטף אם קיים, כדי שהגובה יהיה תקין
+                            const container = label.closest('.container') || label.parentElement;
+                            if (container) {
+                                container.style.minHeight = '48px';
+                                container.style.display = 'flex';
+                                container.style.alignItems = 'center';
+                            }
+
+                            observer.disconnect(); // עוצרים את התצפיתן
+                            return;
+                        }
+                    }
+                }
+            }
         });
+
+        observer.observe(document.body, { childList: true, subtree: true });
+        // כיבוי בטיחותי אחרי 5 שניות
+        setTimeout(() => observer.disconnect(), 5000);
+    }
+
+    // --- 2. חלק ב': טיפול בשרשראות הפניה והזרקת כפתורי ההורדה ---
+    if (hostname.includes('lh3.google')) {
+        const initImagePage = () => {
+            // טיפול בשרשרת ההפניות של גוגל (טקסט במקום תמונה)
+            if (document.contentType === 'text/plain') {
+                const textContent = document.body.innerText.trim();
+                if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
+                    const nextHopUrl = textContent.replace(/=s0-d(-I)?/, '=s0');
+                    window.location.replace(nextHopUrl);
+                    return;
+                }
+            }
+
+            // חיפוש אגרסיבי של התמונה להזרקת הכפתורים בדפדפן כרום
+            const checkImgInterval = setInterval(() => {
+                // אם הכפתורים כבר קיימים, מפסיקים לחפש
+                if (document.querySelector('.netfree-img-controls')) {
+                    clearInterval(checkImgInterval);
+                    return;
+                }
+
+                const img = document.querySelector('img');
+                if (img && img.src && document.body) {
+                    clearInterval(checkImgInterval);
+                    injectControlButtons(img.src);
+                }
+            }, 50);
+
+            // הפסקת החיפוש אחרי 5 שניות (מונע ריצה אינסופית במקרה של שגיאה)
+            setTimeout(() => clearInterval(checkImgInterval), 5000);
+        };
+
+        // הפעלה בטוחה בהתאם למצב טעינת ה-DOM
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initImagePage);
+        } else {
+            initImagePage();
+        }
     }
 
     function injectControlButtons(imgUrl) {
-        // זיהוי שפת הדפדפן (עברית או כל שפה אחרת שתיפול לאנגלית)
-        const isHebrew = navigator.language.startsWith('he');
-        
-        // מילון תרגומים
         const i18n = {
             copyDefault: isHebrew ? 'העתקת תמונה' : 'Copy Image',
             copying: isHebrew ? 'מעתיק...' : 'Copying...',
@@ -96,7 +150,6 @@
             downloadSuccess: isHebrew ? 'הורדה הושלמה!' : 'Download complete!'
         };
 
-        // יצירת אלמנט סגנון דינמי (כולל הגדרת כיוון RTL/LTR לטולטיפ)
         const style = document.createElement('style');
         style.textContent = `
             .netfree-img-controls {
@@ -135,7 +188,6 @@
             .netfree-btn:active {
                 transform: scale(0.95);
             }
-            /* עיצוב הטולטיפ שמופיע בריחוף */
             .netfree-btn::after {
                 content: attr(data-tooltip);
                 position: absolute;
@@ -162,11 +214,9 @@
         `;
         document.head.appendChild(style);
 
-        // יצירת תיבת הבקרה
         const container = document.createElement('div');
         container.className = 'netfree-img-controls';
 
-        // כפתור העתקה
         const copyBtn = document.createElement('button');
         copyBtn.className = 'netfree-btn';
         copyBtn.setAttribute('data-tooltip', i18n.copyDefault);
@@ -177,7 +227,6 @@
             </svg>
         `;
 
-        // כפתור הורדה
         const downloadBtn = document.createElement('button');
         downloadBtn.className = 'netfree-btn';
         downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault);
@@ -189,17 +238,16 @@
             </svg>
         `;
 
-        // לוגיקת העתקת קובץ התמונה
         copyBtn.addEventListener('click', async () => {
             try {
                 copyBtn.setAttribute('data-tooltip', i18n.copying);
                 const response = await fetch(imgUrl);
                 const blob = await response.blob();
-                
+
                 await navigator.clipboard.write([
                     new ClipboardItem({ [blob.type]: blob })
                 ]);
-                
+
                 copyBtn.setAttribute('data-tooltip', i18n.copySuccess);
                 setTimeout(() => copyBtn.setAttribute('data-tooltip', i18n.copyDefault), 2000);
             } catch (err) {
@@ -210,14 +258,13 @@
             }
         });
 
-        // לוגיקת הורדת קובץ התמונה
         downloadBtn.addEventListener('click', async () => {
             try {
                 downloadBtn.setAttribute('data-tooltip', i18n.downloading);
                 const response = await fetch(imgUrl);
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
-                
+
                 const a = document.createElement('a');
                 a.href = blobUrl;
                 a.download = 'gemini-image.png';
@@ -225,7 +272,7 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(blobUrl);
-                
+
                 downloadBtn.setAttribute('data-tooltip', i18n.downloadSuccess);
                 setTimeout(() => downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault), 2000);
             } catch (err) {
