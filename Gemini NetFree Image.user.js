@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Gemini NetFree Image
 // @namespace    http://tampermonkey.net/
-// @version      1.1
-// @description  מונע הורדת תמונות חסומות בנטפרי, מוסיף תמיכה דו-לשונית (עברית/אנגלית) וכפתורי הורדה מעוצבים
+// @version      1.2
+// @description  מונע הורדת תמונות חסומות בנטפרי, מוסיף תמיכה דו-לשונית וכפתורי הורדה מעוצבים (גרסה מתוקנת לאיכות מקסימלית)
 // @author       לאצי&AI
 // @match        https://gemini.google.com/*
 // @match        https://lh3.googleusercontent.com/*
@@ -65,20 +65,14 @@
                     if (node.nodeType === 1) { // אם זה אלמנט HTML
                         const label = node.classList.contains('mat-mdc-snack-bar-label') ? node : node.querySelector('.mat-mdc-snack-bar-label');
 
-                        // מחפשים את ההודעה הרלוונטית
                         if (label && label.textContent && (label.textContent.includes('בעיה') || label.textContent.includes('error') || label.textContent.includes('problem'))) {
-
-                            // 1. שינוי הטקסט
                             label.textContent = successMsg;
-
-                            // 2. תיקון העיצוב (החזרת ה"נפח" והפונט של גוגל)
                             label.style.fontFamily = '"Google Sans", "Segoe UI", system-ui, sans-serif';
                             label.style.fontSize = '14px';
                             label.style.lineHeight = '20px';
                             label.style.fontWeight = '400';
                             label.style.padding = '14px 16px';
 
-                            // תיקון הקונטיינר העוטף אם קיים, כדי שהגובה יהיה תקין
                             const container = label.closest('.container') || label.parentElement;
                             if (container) {
                                 container.style.minHeight = '48px';
@@ -86,7 +80,7 @@
                                 container.style.alignItems = 'center';
                             }
 
-                            observer.disconnect(); // עוצרים את התצפיתן
+                            observer.disconnect();
                             return;
                         }
                     }
@@ -95,14 +89,12 @@
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
-        // כיבוי בטיחותי אחרי 5 שניות
         setTimeout(() => observer.disconnect(), 5000);
     }
 
     // --- 2. חלק ב': טיפול בשרשראות הפניה והזרקת כפתורי ההורדה ---
     if (hostname.includes('lh3.google')) {
         const initImagePage = () => {
-            // טיפול בשרשרת ההפניות של גוגל (טקסט במקום תמונה)
             if (document.contentType === 'text/plain') {
                 const textContent = document.body.innerText.trim();
                 if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
@@ -112,9 +104,7 @@
                 }
             }
 
-            // חיפוש אגרסיבי של התמונה להזרקת הכפתורים בדפדפן כרום
             const checkImgInterval = setInterval(() => {
-                // אם הכפתורים כבר קיימים, מפסיקים לחפש
                 if (document.querySelector('.netfree-img-controls')) {
                     clearInterval(checkImgInterval);
                     return;
@@ -127,11 +117,9 @@
                 }
             }, 50);
 
-            // הפסקת החיפוש אחרי 5 שניות (מונע ריצה אינסופית במקרה של שגיאה)
             setTimeout(() => clearInterval(checkImgInterval), 5000);
         };
 
-        // הפעלה בטוחה בהתאם למצב טעינת ה-DOM
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initImagePage);
         } else {
@@ -147,8 +135,23 @@
             copyFallback: isHebrew ? 'הקישור הועתק!' : 'URL copied!',
             downloadDefault: isHebrew ? 'הורדת תמונה' : 'Download Image',
             downloading: isHebrew ? 'מוריד...' : 'Downloading...',
-            downloadSuccess: isHebrew ? 'הורדה הושלמה!' : 'Download complete!'
+            downloadSuccess: isHebrew ? 'הורדה הושלמה!' : 'Download complete!',
+            errorFallback: isHebrew ? 'שגיאה. נפתח בכרטיסייה!' : 'Error. Opened in tab!'
         };
+
+        // פונקציית עזר להבטחת איכות מקסימלית (הסרת כיווצי גודל כמו =w512 והחלפתם ב-=s0)
+        const getHighResUrl = (url) => {
+            try {
+                let u = new URL(url);
+                u.pathname = u.pathname.replace(/=[a-zA-Z0-9\-_]+$/, '');
+                u.pathname += '=s0';
+                return u.toString();
+            } catch (e) {
+                return url.replace(/=[a-zA-Z0-9\-_]+$/, '') + '=s0';
+            }
+        };
+
+        const highResUrl = getHighResUrl(imgUrl);
 
         const style = document.createElement('style');
         style.textContent = `
@@ -241,18 +244,40 @@
         copyBtn.addEventListener('click', async () => {
             try {
                 copyBtn.setAttribute('data-tooltip', i18n.copying);
-                const response = await fetch(imgUrl);
+                const response = await fetch(highResUrl);
                 const blob = await response.blob();
 
+                let copyBlob = blob;
+                // הדפדפן תומך רק ב-PNG בהעתקה ללוח. נמיר את התמונה אם היא בפורמט WebP/JPEG
+                if (blob.type !== 'image/png') {
+                    copyBlob = await new Promise((resolve, reject) => {
+                        const img = new Image();
+                        const blobUrl = URL.createObjectURL(blob);
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                            canvas.toBlob((b) => {
+                                URL.revokeObjectURL(blobUrl);
+                                resolve(b);
+                            }, 'image/png');
+                        };
+                        img.onerror = () => reject(new Error('Canvas conversion failed'));
+                        img.src = blobUrl;
+                    });
+                }
+
                 await navigator.clipboard.write([
-                    new ClipboardItem({ [blob.type]: blob })
+                    new ClipboardItem({ 'image/png': copyBlob })
                 ]);
 
                 copyBtn.setAttribute('data-tooltip', i18n.copySuccess);
                 setTimeout(() => copyBtn.setAttribute('data-tooltip', i18n.copyDefault), 2000);
             } catch (err) {
-                console.warn('CORS or Clipboard restrictions. Copying URL instead.', err);
-                navigator.clipboard.writeText(imgUrl);
+                console.warn('Clipboard write failed, copying URL instead', err);
+                navigator.clipboard.writeText(highResUrl);
                 copyBtn.setAttribute('data-tooltip', i18n.copyFallback);
                 setTimeout(() => copyBtn.setAttribute('data-tooltip', i18n.copyDefault), 2000);
             }
@@ -261,13 +286,15 @@
         downloadBtn.addEventListener('click', async () => {
             try {
                 downloadBtn.setAttribute('data-tooltip', i18n.downloading);
-                const response = await fetch(imgUrl);
+                const response = await fetch(highResUrl);
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
 
                 const a = document.createElement('a');
                 a.href = blobUrl;
-                a.download = 'gemini-image.png';
+                // קביעת סיומת הקובץ הנכונה
+                const ext = blob.type.split('/')[1] || 'png';
+                a.download = `gemini-image-high-res.${ext}`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -277,7 +304,10 @@
                 setTimeout(() => downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault), 2000);
             } catch (err) {
                 console.error('Download failed', err);
-                window.location.href = imgUrl.replace('=s0', '=s0-d');
+                // במקרה של שגיאה - נפתח את תמונת המקור בכרטיסיה חדשה במקום לנתב לקובץ טקסט
+                window.open(highResUrl, '_blank');
+                downloadBtn.setAttribute('data-tooltip', i18n.errorFallback);
+                setTimeout(() => downloadBtn.setAttribute('data-tooltip', i18n.downloadDefault), 2000);
             }
         });
 
